@@ -1,20 +1,20 @@
+const fs = require("fs");
 const cors = require("cors");
 const path = require("path");
 const multer = require("multer");
+const admZip = require("adm-zip");
 const express = require("express");
 const mongoose = require("mongoose");
 const bodyParser = require("body-parser");
 
 // Multer Configuration
 const storage = multer.diskStorage({
-  destination: function(req, file, cb) {
-    cb(null, "public/uploads/");
-  },
-  filename: function(req, file, cb) {
+  destination: (req, file, done) => done(null, "public/uploads/"),
+  filename: (req, file, done) => {
     let lastIndex = file.originalname.lastIndexOf(".");
     // Get Original File Extension
     let extension = file.originalname.substring(lastIndex);
-    cb(null, file.fieldname + "-" + Date.now() + extension);
+    done(null, file.fieldname + "-" + Date.now() + extension);
   }
 });
 
@@ -30,11 +30,10 @@ app.use(cors());
 app.use(bodyParser.json());
 
 // Set Static Directory
-// app.use(express.static(path.join(__dirname, "./public")));
 app.use(express.static(path.join(__dirname, "./public")));
 
 // Configuration
-const PORT = mode === "dev" ? 5000 : process.env.PORT;
+const PORT = 3000;
 const db =
   mode === "dev"
     ? "mongodb://localhost:27017/imageDB"
@@ -97,10 +96,12 @@ app.post("/add-image", upload.single("image"), async (req, res, next) => {
     .then(product =>
       res
         .status(201)
-        .json({ msg: "Product added successfully", product, sucess: true })
+        .json({ msg: "Product added successfully", product, success: true })
     )
     .catch(err =>
-      res.status(403).json({ msg: "Unbale to add the product.", sucess: false })
+      res
+        .status(403)
+        .json({ msg: "Unbale to add the product.", success: false })
     );
   next();
 });
@@ -118,4 +119,58 @@ app.get("/get-products", async (req, res, next) => {
       })
     );
   next();
+});
+
+/**
+ * ZIP File Extractor
+ */
+app.post("/zip-file-extract", upload.single("zipfile"), async (req, res) => {
+  let zip = new admZip(path.join(__dirname, req.file.path));
+  let folderName = req.body.productName;
+  zip.extractAllTo(path.join(__dirname, `public/uploads/${folderName}`), true);
+  // Delete the Zip folder from the server
+
+  try {
+    fs.unlinkSync(path.join(__dirname, req.file.path));
+    // Delete the Cache Folder from the Server
+  } catch (err) {
+    console.error(err);
+  }
+
+  // Read the Contents of the folder
+  await fs.readdir(
+    path.join(__dirname, `public/uploads/${folderName}`),
+    async (err, items) => {
+      let folderContents = [];
+      // Get All the Files
+      folderContents = await items.map(
+        content => `/uploads/${folderName}/${content}`
+      );
+      // To Read only Images
+      folderContents = await folderContents.filter(files => {
+        let supportedImageExtensions = [".jpeg", ".jpg", ".gif", ".png"];
+        fileName = files.toLowerCase();
+        let ext = fileName.substring(fileName.lastIndexOf("."));
+        if (supportedImageExtensions.includes(ext)) {
+          return fileName;
+        }
+      });
+
+      return res.json({
+        files: folderContents,
+        message: "File uploaded successfully"
+      });
+    }
+  );
+});
+
+/**
+ * PUT IMAGE INTO A DIRECTORY
+ */
+
+/**
+ * Default Index Route
+ */
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "public/index.html"));
 });
